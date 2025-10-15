@@ -1,19 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import OpenAI from 'openai';
+import { getCachedEnvConfig } from '@/utils/env-config';
+import { ErrorHandler, withErrorHandler, ErrorType } from '@/utils/error-handler';
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || '',
-});
-
-// Check API key on startup
-console.log('OpenAI/OpenRouter API configuration:', {
-  baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
-  hasApiKey: !!(process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY),
-  keyLength: (process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || '').length
-});
+// Defer environment access and OpenAI initialization to request time
 
 interface GenerateNameRequest {
   englishName: string;
@@ -43,24 +34,35 @@ interface NameData {
 }
 
 export async function POST(request: NextRequest) {
-  console.log('=== Chinese Names Generate API Called ===');
+  if (process.env.NODE_ENV === 'development') {
+    console.log('=== Chinese Names Generate API Called ===');
+  }
+
   try {
     const supabase = await createClient();
-    
+
     // Check if user is authenticated for paid features
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
+
     const body: GenerateNameRequest = await request.json();
     const { englishName, gender, birthYear, personalityTraits, namePreferences, planType, continueBatch, batchId } = body;
 
-    console.log('Request body:', { englishName, gender, planType, continueBatch, batchId, hasUser: !!user });
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Request body:', { englishName, gender, planType, continueBatch, batchId, hasUser: !!user });
+    }
 
     if (!englishName || !gender || !planType) {
-      console.error('Missing required fields:', { englishName, gender, planType });
-      return NextResponse.json(
-        { error: 'Missing required fields: englishName, gender, and planType' },
-        { status: 400 }
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Missing required fields:', { englishName, gender, planType });
+      }
+
+      const validationError = ErrorHandler.validationError(
+        'Please fill in all required fields to generate your Chinese name.',
+        { missingFields: { englishName: !!englishName, gender: !!gender, planType: !!planType } }
       );
+
+      const errorResponse = ErrorHandler.toErrorResponse(validationError);
+      return NextResponse.json(errorResponse, { status: 400 });
     }
 
     // For non-authenticated users, check IP rate limiting
@@ -69,37 +71,44 @@ export async function POST(request: NextRequest) {
       const forwarded = request.headers.get('x-forwarded-for');
       const realIp = request.headers.get('x-real-ip');
       const clientIp = forwarded ? forwarded.split(',')[0].trim() : realIp || '127.0.0.1';
-      
-      console.log('Free generation attempt:', {
-        forwarded,
-        realIp,
-        clientIp,
-        headers: Object.fromEntries(request.headers.entries())
-      });
-      
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Free generation attempt:', {
+          forwarded,
+          realIp,
+          clientIp,
+        });
+      }
+
       // Check IP rate limit using Supabase function
       const { data: canGenerate, error: rateLimitError } = await supabase
         .rpc('check_ip_rate_limit', { p_client_ip: clientIp });
-      
-      console.log('Rate limit check result:', { canGenerate, rateLimitError });
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Rate limit check result:', { canGenerate, rateLimitError });
+      }
 
       if (rateLimitError) {
         console.error('Rate limit check error:', rateLimitError);
-        return NextResponse.json(
-          { error: 'Unable to verify rate limit. Please try again.' },
-          { status: 500 }
+        const errorResponse = ErrorHandler.toErrorResponse(
+          ErrorHandler.createError(
+            ErrorType.RATE_LIMIT,
+            'Unable to verify usage limit. Please try again.',
+            rateLimitError.message,
+            {
+              code: 'RATE_LIMIT_CHECK_FAILED',
+              retryable: true,
+              suggestions: ['Refresh the page and try again', 'Wait a moment before trying again'],
+            }
+          )
         );
+        return NextResponse.json(errorResponse, { status: 500 });
       }
 
       if (!canGenerate) {
-        return NextResponse.json(
-          { 
-            error: 'Free generation limit reached. You can generate 3 free names per day. Please sign in for unlimited access!',
-            rateLimited: true,
-            suggestion: 'Create an account to generate unlimited names'
-          },
-          { status: 429 }
-        );
+        const rateLimitError = ErrorHandler.rateLimitError(3, 'day');
+        const errorResponse = ErrorHandler.toErrorResponse(rateLimitError);
+        return NextResponse.json(errorResponse, { status: 429 });
       }
     }
 
@@ -540,16 +549,18 @@ Requirements:
     });
 
   } catch (error) {
-    console.error('Name generation error:', error);
-    console.error('Error details:', error instanceof Error ? error.message : 'Unknown error');
-    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
-    return NextResponse.json(
-      { 
-        error: 'Failed to generate names. Please try again.',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    const appError = ErrorHandler.handleError(error, 'name generation');
+    const errorResponse = ErrorHandler.toErrorResponse(appError, crypto.randomUUID());
+
+    // Log error for debugging
+    console.error('Name generation error:', {
+      type: appError.type,
+      message: appError.message,
+      userMessage: appError.userMessage,
+      timestamp: new Date().toISOString(),
+    });
+
+    return NextResponse.json(errorResponse, { status: 500 });
   }
 }
 

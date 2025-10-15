@@ -1,19 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
+import { UserDataCache } from '@/utils/cache';
 
 // GET - 获取用户积分（使用统一的customers表）
 export async function GET() {
   try {
     const supabase = await createClient();
-    
+
     // 获取当前用户
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
+
     if (authError || !user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
+    }
+
+    // Try to get from cache first
+    const cached = UserDataCache.get(user.id, 'credits');
+    if (cached) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`Cache hit for credits: ${user.id}`);
+      }
+      return NextResponse.json({ credits: cached });
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Cache miss for credits: ${user.id}`);
     }
 
     // 查询用户的customer记录
@@ -85,29 +99,35 @@ export async function GET() {
           metadata: { source: 'welcome_bonus' }
         });
 
-      return NextResponse.json({ 
-        credits: {
-          id: newCustomer.id,
-          user_id: newCustomer.user_id,
-          total_credits: newCustomer.credits,
-          remaining_credits: newCustomer.credits,
-          created_at: newCustomer.created_at,
-          updated_at: newCustomer.updated_at
-        }
-      });
+      const creditsData = {
+        id: newCustomer.id,
+        user_id: newCustomer.user_id,
+        total_credits: newCustomer.credits,
+        remaining_credits: newCustomer.credits,
+        created_at: newCustomer.created_at,
+        updated_at: newCustomer.updated_at
+      };
+
+      // Cache the new user credits
+      UserDataCache.set(user.id, 'credits', creditsData);
+
+      return NextResponse.json({ credits: creditsData });
     }
 
     // 返回兼容的格式
-    return NextResponse.json({ 
-      credits: {
-        id: customer.id,
-        user_id: customer.user_id,
-        total_credits: customer.credits, // 使用当前积分作为总积分
-        remaining_credits: customer.credits,
-        created_at: customer.created_at,
-        updated_at: customer.updated_at
-      }
-    });
+    const creditsData = {
+      id: customer.id,
+      user_id: customer.user_id,
+      total_credits: customer.credits, // 使用当前积分作为总积分
+      remaining_credits: customer.credits,
+      created_at: customer.created_at,
+      updated_at: customer.updated_at
+    };
+
+    // Cache the credits data
+    UserDataCache.set(user.id, 'credits', creditsData);
+
+    return NextResponse.json({ credits: creditsData });
   } catch (error) {
     console.error('Credits API error:', error);
     return NextResponse.json(
@@ -205,16 +225,21 @@ export async function POST(request: NextRequest) {
     }
 
     // 返回兼容的格式
-    return NextResponse.json({ 
-      credits: {
-        id: updatedCustomer.id,
-        user_id: updatedCustomer.user_id,
-        total_credits: updatedCustomer.credits,
-        remaining_credits: updatedCustomer.credits,
-        created_at: updatedCustomer.created_at,
-        updated_at: updatedCustomer.updated_at
-      },
-      success: true 
+    const creditsData = {
+      id: updatedCustomer.id,
+      user_id: updatedCustomer.user_id,
+      total_credits: updatedCustomer.credits,
+      remaining_credits: updatedCustomer.credits,
+      created_at: updatedCustomer.created_at,
+      updated_at: updatedCustomer.updated_at
+    };
+
+    // Update cache with new credits amount
+    UserDataCache.set(user.id, 'credits', creditsData);
+
+    return NextResponse.json({
+      credits: creditsData,
+      success: true
     });
   } catch (error) {
     console.error('Credits spend API error:', error);

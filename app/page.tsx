@@ -10,6 +10,7 @@ import NameGeneratorForm from "@/components/product/generator/name-generator-for
 import ChineseNamePricing from "@/components/product/pricing/chinese-name-pricing";
 import PopularNames from "@/components/product/popular/popular-names";
 import { saveFormData, loadFormData } from "@/utils/form-storage";
+import { useAnalytics } from "@/components/analytics-provider";
 
 interface NameData {
   chinese: string;
@@ -39,7 +40,8 @@ export default function Home() {
   const router = useRouter();
   const { user, loading } = useUser();
   const { toast } = useToast();
-  
+  const analytics = useAnalytics();
+
   // UI state
   const [isGenerating, setIsGenerating] = useState(false);
   const [hasTriedFree, setHasTriedFree] = useState(false);
@@ -69,12 +71,27 @@ export default function Home() {
 
 
   const handleGenerate = async (formData: FormData) => {
+    const startTime = Date.now();
+
+    // Track generation attempt
+    analytics.trackInteraction('name_generator', 'generate_attempt', {
+      planType: formData.planType,
+      gender: formData.gender,
+      hasPersonalityTraits: !!(formData.personalityTraits && user),
+      isAuthenticated: !!user,
+    });
+
     // Check if it's a free trial attempt
     if (!user && hasTriedFree) {
       toast({
         title: "Free trial used",
         description: "You've already used your free generation. Please sign in for unlimited access!",
       });
+
+      analytics.trackInteraction('name_generator', 'free_trial_denied', {
+        reason: 'already_used',
+      });
+
       router.push('/sign-in');
       return;
     }
@@ -140,17 +157,39 @@ export default function Home() {
         namePreferences: formData.namePreferences
       });
 
+      const generationTime = Date.now() - startTime;
+
+      // Track successful generation
+      analytics.trackNameGeneration({
+        planType: formData.planType,
+        nameCount: data.names.length,
+        gender: formData.gender,
+        isAuthenticated: !!user,
+        hasPersonalityTraits: !!(formData.personalityTraits && user),
+        generationTime,
+      });
+
       toast({
         title: data.message || "Names generated successfully!",
         description: `Generated ${data.names.length} unique Chinese names${data.creditsUsed ? ` using ${data.creditsUsed} credits` : ' for free'}`,
       });
-      
+
       // Navigate to results page
       router.push('/results');
     } catch (error) {
+      const generationTime = Date.now() - startTime;
       console.error('Generation error:', error);
       const errorMessage = error instanceof Error ? error.message : "Something went wrong. Please try again.";
       console.error('Detailed error:', errorMessage);
+
+      // Track generation error
+      analytics.trackError(errorMessage, 'name_generation', {
+        planType: formData.planType,
+        gender: formData.gender,
+        generationTime,
+        isAuthenticated: !!user,
+      });
+
       toast({
         title: "Generation failed",
         description: errorMessage,
