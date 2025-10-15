@@ -71,7 +71,8 @@ class Analytics {
    */
   private isDoNotTrackEnabled(): boolean {
     if (typeof window === 'undefined') return false;
-    return navigator.doNotTrack === '1' || window.doNotTrack === '1';
+    const w: any = window as any;
+    return navigator.doNotTrack === '1' || w.doNotTrack === '1' || (navigator as any).msDoNotTrack === '1';
   }
 
   /**

@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 
 // Get specific batch with pagination by generation rounds
 export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
+  request: Request,
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = await createClient();
@@ -16,8 +16,8 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const batchId = params.id;
-    const searchParams = request.nextUrl.searchParams;
+    const { id: batchId } = await context.params;
+    const { searchParams } = new URL(request.url);
     const round = parseInt(searchParams.get('round') || '1');
 
     console.log('Fetching batch details:', { batchId, round, userId: user.id });

@@ -124,7 +124,8 @@ export async function generatePDF(
       if (browser) {
         await browser.close();
       }
-      throw new Error(`Puppeteer generation failed: ${puppeteerError.message}`);
+      const message = puppeteerError instanceof Error ? puppeteerError.message : 'Unknown error';
+      throw new Error(`Puppeteer generation failed: ${message}`);
     }
 
   } catch (error) {

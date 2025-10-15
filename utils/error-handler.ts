@@ -47,6 +47,14 @@ export interface ErrorResponse {
   requestId?: string;
 }
 
+function isAppError(error: unknown): error is AppError {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const candidate = error as Partial<AppError>;
+  return typeof candidate.type === 'string' && typeof candidate.userMessage === 'string';
+}
+
 class ErrorHandler {
   /**
    * Create a standardized application error
@@ -79,7 +87,7 @@ class ErrorHandler {
    * Handle unknown errors and convert them to AppError
    */
   static handleError(error: unknown, context?: string): AppError {
-    if (error instanceof AppError) {
+    if (isAppError(error)) {
       return error;
     }
 

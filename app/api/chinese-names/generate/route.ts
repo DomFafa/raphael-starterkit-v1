@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import OpenAI from 'openai';
 import { getCachedEnvConfig } from '@/utils/env-config';
-import { ErrorHandler, withErrorHandler, ErrorType } from '@/utils/error-handler';
+import ErrorHandler, { ErrorType } from '@/utils/error-handler';
 
 // Defer environment access and OpenAI initialization to request time
 
@@ -64,6 +64,13 @@ export async function POST(request: NextRequest) {
       const errorResponse = ErrorHandler.toErrorResponse(validationError);
       return NextResponse.json(errorResponse, { status: 400 });
     }
+
+    // Initialize OpenAI client at request time (avoids build-time env access)
+    const envConfig = getCachedEnvConfig();
+    const openai = new OpenAI({
+      baseURL: envConfig.openaiBaseUrl,
+      apiKey: envConfig.openaiApiKey,
+    });
 
     // For non-authenticated users, check IP rate limiting
     if (!user) {

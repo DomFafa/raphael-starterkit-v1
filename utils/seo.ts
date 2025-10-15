@@ -84,6 +84,13 @@ interface Person {
   name: string;
 }
 
+interface WebPage {
+  '@type': 'WebPage';
+  '@id'?: string;
+  url?: string;
+  name?: string;
+}
+
 interface FAQSchema {
   '@context': 'https://schema.org';
   '@type': 'FAQPage';

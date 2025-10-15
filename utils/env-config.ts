@@ -48,8 +48,14 @@ function getRequiredEnvVar(key: string): string {
   return value;
 }
 
+function getOptionalEnvVar(key: string): string | undefined;
+function getOptionalEnvVar(key: string, defaultValue: string): string;
 function getOptionalEnvVar(key: string, defaultValue?: string): string | undefined {
-  return process.env[key] || defaultValue;
+  const value = process.env[key];
+  if (value !== undefined && value !== null) {
+    return value;
+  }
+  return defaultValue;
 }
 
 function validateUrl(url: string, key: string): string {
@@ -70,7 +76,13 @@ export function getEnvConfig(): EnvConfig {
       supabaseServiceRoleKey: getRequiredEnvVar('SUPABASE_SERVICE_ROLE_KEY'),
 
       // OpenAI/OpenRouter Configuration
-      openaiApiKey: getRequiredEnvVar('OPENROUTER_API_KEY') || getRequiredEnvVar('OPENAI_API_KEY'),
+      openaiApiKey: (() => {
+        const viaOpenRouter = getOptionalEnvVar('OPENROUTER_API_KEY');
+        if (viaOpenRouter) return viaOpenRouter;
+        const viaOpenAI = getOptionalEnvVar('OPENAI_API_KEY');
+        if (viaOpenAI) return viaOpenAI;
+        throw new EnvValidationError('Missing required environment variable: OPENROUTER_API_KEY or OPENAI_API_KEY');
+      })(),
       openaiBaseUrl: getOptionalEnvVar('OPENAI_BASE_URL', 'https://openrouter.ai/api/v1'),
       openrouterApiKey: getOptionalEnvVar('OPENROUTER_API_KEY'),
 

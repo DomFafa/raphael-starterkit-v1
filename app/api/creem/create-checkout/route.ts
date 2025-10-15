@@ -90,10 +90,10 @@ export async function POST(request: Request) {
       }
     }
 
-    productId = resolved.productId;
-    type = resolved.type;
-    if (resolved.credits_amount && credits_amount == null) {
-      credits_amount = resolved.credits_amount;
+    productId = resolved!.productId;
+    type = resolved!.type;
+    if (resolved!.credits_amount && credits_amount == null) {
+      credits_amount = resolved!.credits_amount;
     }
 
     // Ensure required environment variables exist
@@ -141,4 +141,3 @@ export async function POST(request: Request) {
     );
   }
 }
-
